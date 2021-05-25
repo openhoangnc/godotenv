@@ -97,7 +97,8 @@ func Read(filenames ...string) (envMap map[string]string, err error) {
 }
 
 // Parse reads an env file from io.Reader, returning a map of keys and values.
-func Parse(r io.Reader) (envMap map[string]string, err error) {
+// Option expanding for vairables expanding, default true
+func Parse(r io.Reader, expanding ...bool) (envMap map[string]string, err error) {
 	envMap = make(map[string]string)
 
 	var lines []string
@@ -110,10 +111,15 @@ func Parse(r io.Reader) (envMap map[string]string, err error) {
 		return
 	}
 
+	enableExpanding := len(expanding) == 0 || expanding[0]
 	for _, fullLine := range lines {
 		if !isIgnoredLine(fullLine) {
 			var key, value string
-			key, value, err = parseLine(fullLine, envMap)
+			if enableExpanding {
+				key, value, err = parseLine(fullLine, envMap)
+			} else {
+				key, value, err = parseLine(fullLine)
+			}
 
 			if err != nil {
 				return
@@ -221,7 +227,8 @@ func readFile(filename string) (envMap map[string]string, err error) {
 
 var exportRegex = regexp.MustCompile(`^\s*(?:export\s+)?(.*?)\s*$`)
 
-func parseLine(line string, envMap map[string]string) (key string, value string, err error) {
+// pass 1 envMap to use expandVariables
+func parseLine(line string, envMap ...map[string]string) (key string, value string, err error) {
 	if len(line) == 0 {
 		err = errors.New("zero length string")
 		return
@@ -259,21 +266,15 @@ func parseLine(line string, envMap map[string]string) (key string, value string,
 	}
 
 	if len(splitString) != 2 {
-		err = errors.New("Can't separate key from value")
+		err = errors.New("can't separate key from value")
 		return
 	}
 
 	// Parse the key
-	key = splitString[0]
-	if strings.HasPrefix(key, "export") {
-		key = strings.TrimPrefix(key, "export")
-	}
-	key = strings.TrimSpace(key)
-
 	key = exportRegex.ReplaceAllString(splitString[0], "$1")
 
 	// Parse the value
-	value = parseValue(splitString[1], envMap)
+	value = parseValue(splitString[1], envMap...)
 	return
 }
 
@@ -284,7 +285,8 @@ var (
 	unescapeCharsRegex = regexp.MustCompile(`\\([^$])`)
 )
 
-func parseValue(value string, envMap map[string]string) string {
+// pass 1 envMap to use expandVariables
+func parseValue(value string, envMap ...map[string]string) string {
 
 	// trim
 	value = strings.Trim(value, " ")
@@ -317,8 +319,8 @@ func parseValue(value string, envMap map[string]string) string {
 			value = unescapeCharsRegex.ReplaceAllString(value, "$1")
 		}
 
-		if singleQuotes == nil {
-			value = expandVariables(value, envMap)
+		if singleQuotes == nil && len(envMap) > 0 {
+			value = expandVariables(value, envMap[0])
 		}
 	}
 

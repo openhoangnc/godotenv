@@ -268,6 +268,69 @@ func TestExpanding(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNoExpanding(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected map[string]string
+	}{
+		{
+			"no expand variables found in values",
+			"FOO=test\nBAR=$FOO",
+			map[string]string{"FOO": "test", "BAR": "$FOO"},
+		},
+		{
+			"no parse variables wrapped in brackets",
+			"FOO=test\nBAR=${FOO}bar",
+			map[string]string{"FOO": "test", "BAR": "${FOO}bar"},
+		},
+		{
+			"no expand undefined variables to an empty string",
+			"BAR=$FOO",
+			map[string]string{"BAR": "$FOO"},
+		},
+		{
+			"no expand variables in double quoted strings",
+			"FOO=test\nBAR=\"quote $FOO\"",
+			map[string]string{"FOO": "test", "BAR": "quote $FOO"},
+		},
+		{
+			"does not expand variables in single quoted strings",
+			"BAR='quote $FOO'",
+			map[string]string{"BAR": "quote $FOO"},
+		},
+		{
+			"does not expand escaped variables",
+			`FOO="foo\$BAR"`,
+			map[string]string{"FOO": "foo\\$BAR"},
+		},
+		{
+			"does not expand escaped variables",
+			`FOO="foo\${BAR}"`,
+			map[string]string{"FOO": "foo\\${BAR}"},
+		},
+		{
+			"does not expand escaped variables",
+			"FOO=test\nBAR=\"foo\\${FOO} ${FOO}\"",
+			map[string]string{"FOO": "test", "BAR": "foo\\${FOO} ${FOO}"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env, err := Parse(strings.NewReader(tt.input), false)
+			if err != nil {
+				t.Errorf("Error: %s", err.Error())
+			}
+			for k, v := range tt.expected {
+				if strings.Compare(env[k], v) != 0 {
+					t.Errorf("Expected: %s, Actual: %s", v, env[k])
+				}
+			}
+		})
+	}
 
 }
 
