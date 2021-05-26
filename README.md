@@ -1,4 +1,4 @@
-# GoDotEnv ![CI](https://github.com/openhoangnc/godotenv/workflows/CI/badge.svg) [![Go Report Card](https://goreportcard.com/badge/github.com/openhoangnc/godotenv)](https://goreportcard.com/report/github.com/openhoangnc/godotenv)
+# GoDotEnv ![CI](https://github.com/openhoangnc/godotenv/workflows/CI/badge.svg)
 
 A Go (golang) port of the Ruby dotenv project (which loads env vars from a .env file)
 
@@ -179,9 +179,6 @@ Releases should follow [Semver](http://semver.org/) though the first couple of r
 
 Use [annotated tags for all releases](https://github.com/openhoangnc/godotenv/issues/30). Example `git tag -a v1.2.1`
 
-## CI
-
-Linux: [![Build Status](https://travis-ci.org/openhoangnc/godotenv.svg?branch=master)](https://travis-ci.org/openhoangnc/godotenv) Windows: [![Build status](https://ci.appveyor.com/api/projects/status/9v40vnfvvgde64u4)](https://ci.appveyor.com/project/openhoangnc/godotenv)
 
 ## Who?
 
