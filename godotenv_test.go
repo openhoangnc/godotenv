@@ -294,27 +294,27 @@ func TestNoExpanding(t *testing.T) {
 		{
 			"no expand variables in double quoted strings",
 			"FOO=test\nBAR=\"quote $FOO\"",
-			map[string]string{"FOO": "test", "BAR": "quote $FOO"},
+			map[string]string{"FOO": "test", "BAR": "\"quote $FOO\""},
 		},
 		{
 			"does not expand variables in single quoted strings",
 			"BAR='quote $FOO'",
-			map[string]string{"BAR": "quote $FOO"},
+			map[string]string{"BAR": "'quote $FOO'"},
 		},
 		{
 			"does not expand escaped variables",
 			`FOO="foo\$BAR"`,
-			map[string]string{"FOO": "foo\\$BAR"},
+			map[string]string{"FOO": "\"foo\\$BAR\""},
 		},
 		{
 			"does not expand escaped variables",
 			`FOO="foo\${BAR}"`,
-			map[string]string{"FOO": "foo\\${BAR}"},
+			map[string]string{"FOO": "\"foo\\${BAR}\""},
 		},
 		{
 			"does not expand escaped variables",
 			"FOO=test\nBAR=\"foo\\${FOO} ${FOO}\"",
-			map[string]string{"FOO": "test", "BAR": "foo\\${FOO} ${FOO}"},
+			map[string]string{"FOO": "test", "BAR": "\"foo\\${FOO} ${FOO}\""},
 		},
 	}
 
@@ -534,4 +534,45 @@ func TestRoundtrip(t *testing.T) {
 		}
 
 	}
+}
+
+func TestParseExpandValues(t *testing.T) {
+	envMap := map[string]string{
+		"A": "(a)",
+		"B": "(b)",
+		"C": "$D+$A",
+		"D": "$A+$B",
+		"E": "$C+$B",
+	}
+	expectedMap := map[string]string{
+		"A": "(a)",
+		"B": "(b)",
+		"C": "(a)+(b)+(a)",
+		"D": "(a)+(b)",
+		"E": "(a)+(b)+(a)+(b)",
+	}
+	err := ParseExpandValues(envMap)
+	if err != nil {
+		t.FailNow()
+	}
+	for k, v := range envMap {
+		if v != expectedMap[k] {
+			t.FailNow()
+		}
+	}
+}
+
+func TestParseExpandValuesError(t *testing.T) {
+	envMap := map[string]string{
+		"A": "(a)",
+		"B": "(b)",
+		"C": "$D+$A",
+		"D": "$E+$B",
+		"E": "$C+$B",
+	}
+	err := ParseExpandValues(envMap)
+	if err == nil {
+		t.FailNow()
+	}
+	t.Log(err)
 }

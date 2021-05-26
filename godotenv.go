@@ -97,8 +97,8 @@ func Read(filenames ...string) (envMap map[string]string, err error) {
 }
 
 // Parse reads an env file from io.Reader, returning a map of keys and values.
-// Option expanding for vairables expanding, default true
-func Parse(r io.Reader, expanding ...bool) (envMap map[string]string, err error) {
+// Option parseValue for variables parseing and expanding, default true
+func Parse(r io.Reader, parseValue ...bool) (envMap map[string]string, err error) {
 	envMap = make(map[string]string)
 
 	var lines []string
@@ -111,14 +111,14 @@ func Parse(r io.Reader, expanding ...bool) (envMap map[string]string, err error)
 		return
 	}
 
-	enableExpanding := len(expanding) == 0 || expanding[0]
+	enableExpanding := len(parseValue) == 0 || parseValue[0]
 	for _, fullLine := range lines {
 		if !isIgnoredLine(fullLine) {
 			var key, value string
 			if enableExpanding {
 				key, value, err = parseLine(fullLine, envMap)
 			} else {
-				key, value, err = parseLine(fullLine)
+				key, value, err = parseLine(fullLine, nil)
 			}
 
 			if err != nil {
@@ -143,7 +143,9 @@ func Unmarshal(str string) (envMap map[string]string, err error) {
 // If you want more fine grained control over your command it's recommended
 // that you use `Load()` or `Read()` and the `os/exec` package yourself.
 func Exec(filenames []string, cmd string, cmdArgs []string) error {
-	Load(filenames...)
+	if err := Load(filenames...); err != nil {
+		return err
+	}
 
 	command := exec.Command(cmd, cmdArgs...)
 	command.Stdin = os.Stdin
@@ -167,8 +169,8 @@ func Write(envMap map[string]string, filename string) error {
 	if err != nil {
 		return err
 	}
-	file.Sync()
-	return err
+
+	return file.Sync()
 }
 
 // Marshal outputs the given environment as a dotenv-formatted environment file.
@@ -227,8 +229,7 @@ func readFile(filename string) (envMap map[string]string, err error) {
 
 var exportRegex = regexp.MustCompile(`^\s*(?:export\s+)?(.*?)\s*$`)
 
-// pass 1 envMap to use expandVariables
-func parseLine(line string, envMap ...map[string]string) (key string, value string, err error) {
+func parseLine(line string, envMap map[string]string) (key string, value string, err error) {
 	if len(line) == 0 {
 		err = errors.New("zero length string")
 		return
@@ -274,7 +275,7 @@ func parseLine(line string, envMap ...map[string]string) (key string, value stri
 	key = exportRegex.ReplaceAllString(splitString[0], "$1")
 
 	// Parse the value
-	value = parseValue(splitString[1], envMap...)
+	value, _ = parseValue(splitString[1], envMap, false)
 	return
 }
 
@@ -285,26 +286,26 @@ var (
 	unescapeCharsRegex = regexp.MustCompile(`\\([^$])`)
 )
 
-// pass 1 envMap to use expandVariables
-func parseValue(value string, envMap ...map[string]string) string {
+// pass envMap to parse value, otherwise trim space only
+func parseValue(value string, envMap map[string]string, keepUndefined bool) (parsedValue string, needExpandMore bool) {
 
 	// trim
-	value = strings.Trim(value, " ")
+	parsedValue = strings.TrimSpace(value)
 
 	// check if we've got quoted values or possible escapes
-	if len(value) > 1 {
-		singleQuotes := singleQuotesRegex.FindStringSubmatch(value)
+	if envMap != nil && len(parsedValue) > 1 {
+		singleQuotes := singleQuotesRegex.FindStringSubmatch(parsedValue)
 
-		doubleQuotes := doubleQuotesRegex.FindStringSubmatch(value)
+		doubleQuotes := doubleQuotesRegex.FindStringSubmatch(parsedValue)
 
 		if singleQuotes != nil || doubleQuotes != nil {
 			// pull the quotes off the edges
-			value = value[1 : len(value)-1]
+			parsedValue = parsedValue[1 : len(parsedValue)-1]
 		}
 
 		if doubleQuotes != nil {
 			// expand newlines
-			value = escapeRegex.ReplaceAllStringFunc(value, func(match string) string {
+			parsedValue = escapeRegex.ReplaceAllStringFunc(parsedValue, func(match string) string {
 				c := strings.TrimPrefix(match, `\`)
 				switch c {
 				case "n":
@@ -316,33 +317,43 @@ func parseValue(value string, envMap ...map[string]string) string {
 				}
 			})
 			// unescape characters
-			value = unescapeCharsRegex.ReplaceAllString(value, "$1")
+			parsedValue = unescapeCharsRegex.ReplaceAllString(parsedValue, "$1")
 		}
 
-		if singleQuotes == nil && len(envMap) > 0 {
-			value = expandVariables(value, envMap[0])
+		if singleQuotes == nil {
+			parsedValue, needExpandMore = expandVariables(parsedValue, envMap, keepUndefined)
 		}
 	}
 
-	return value
+	return
 }
 
 var expandVarRegex = regexp.MustCompile(`(\\)?(\$)(\()?\{?([A-Z0-9_]+)?\}?`)
 
-func expandVariables(v string, m map[string]string) string {
-	return expandVarRegex.ReplaceAllStringFunc(v, func(s string) string {
+func expandVariables(v string, m map[string]string, keepUndefined bool) (string, bool) {
+	needExpandMore := false
+	expandedValue := expandVarRegex.ReplaceAllStringFunc(v, func(s string) string {
 		submatch := expandVarRegex.FindStringSubmatch(s)
-
 		if submatch == nil {
 			return s
 		}
 		if submatch[1] == "\\" || submatch[2] == "(" {
 			return submatch[0][1:]
-		} else if submatch[4] != "" {
-			return m[submatch[4]]
+		} else if k := submatch[4]; k != "" {
+			if !keepUndefined {
+				return m[k]
+			}
+			if v, ok := m[k]; ok {
+				return v
+			}
+			needExpandMore = true
 		}
 		return s
 	})
+
+	needExpandMore = needExpandMore || expandVarRegex.MatchString(expandedValue)
+
+	return expandedValue, needExpandMore
 }
 
 func isIgnoredLine(line string) bool {
@@ -362,4 +373,30 @@ func doubleQuoteEscape(line string) string {
 		line = strings.Replace(line, string(c), toReplace, -1)
 	}
 	return line
+}
+
+// ParseExpandValues parses and expands all values in envMap
+func ParseExpandValues(envMap map[string]string) error {
+	var needExpandMore bool
+	var needExpands []string
+	for k, v := range envMap {
+		envMap[k], needExpandMore = parseValue(v, envMap, true)
+		if needExpandMore {
+			needExpands = append(needExpands, k)
+		}
+	}
+	for len(needExpands) > 0 {
+		expandKeys := needExpands
+		needExpands = nil
+		for _, k := range expandKeys {
+			envMap[k], needExpandMore = expandVariables(envMap[k], envMap, true)
+			if needExpandMore {
+				needExpands = append(needExpands, k)
+			}
+		}
+		if len(needExpands) >= len(expandKeys) {
+			return fmt.Errorf("can not complete expanding %v", needExpands)
+		}
+	}
+	return nil
 }
